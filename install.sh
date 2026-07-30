@@ -1,76 +1,103 @@
 #!/bin/bash
 
-# Default working directory for Pterodactyl
-TARGET_DIR="/var/www/pterodactyl"
+# Folder where blueprints will be saved
+DOWNLOAD_DIR="./blueprints"
 
 clear
 echo "=============================================="
-echo "       Pterodactyl Blueprint Auto-Installer   "
+echo "    Pterodactyl Blueprint Auto-Downloader     "
 echo "=============================================="
 echo ""
-
-# Ensure script is run from or target directory exists
-mkdir -p "$TARGET_DIR"
-cd "$TARGET_DIR" || exit 1
 
 # Check if Blueprint CLI exists
 if ! command -v blueprint &> /dev/null; then
     echo "❌ ERROR: 'blueprint' CLI command is not installed."
-    echo "Please install Blueprint framework first before running this installer."
+    echo "Install Blueprint framework first, then run this installer again."
     exit 1
 fi
 
-# Ask user for direct download link
-read -p "Enter direct URL to .blueprint file: " BLUEPRINT_URL
+mkdir -p "$DOWNLOAD_DIR"
 
-if [ -z "$BLUEPRINT_URL" ]; then
-    echo "❌ Error: URL cannot be empty."
+# Step 1: Prompt for URL or direct file download
+read -p "Enter direct URL to a .blueprint file (or press ENTER to use existing folder): " URL
+
+if [ -n "$URL" ]; then
+    FILENAME=$(basename "$URL" | cut -d'?' -f1)
+    
+    # Fix raw GitHub link if needed
+    if [[ "$URL" == *"github.com"* ]] && [[ "$URL" == *"/blob/"* ]]; then
+        URL=$(echo "$URL" | sed 's/github.com/raw.githubusercontent.com/' | sed 's//blob///')
+    fi
+
+    echo "📥 Downloading $FILENAME..."
+    if command -v curl &> /dev/null; then
+        curl -sSL -o "$DOWNLOAD_DIR/$FILENAME" "$URL"
+    elif command -v wget &> /dev/null; then
+        wget -q -O "$DOWNLOAD_DIR/$FILENAME" "$URL"
+    fi
+fi
+
+# Step 2: Fetch all .blueprint files in directory
+cd "$DOWNLOAD_DIR" || exit 1
+shopt -s nullglob
+BLUEPRINTS=( *.blueprint )
+
+if [ ${#BLUEPRINTS[@]} -eq 0 ]; then
+    echo ""
+    echo "❌ No .blueprint files found in $(pwd)!"
     exit 1
 fi
 
-# Extract filename from URL
-FILENAME=$(basename "$BLUEPRINT_URL" | cut -d'?' -f1)
-
-# Ensure extension ends with .blueprint
-if [[ "$FILENAME" != *.blueprint ]]; then
-    FILENAME="${FILENAME}.blueprint"
-fi
-
+# Step 3: Present selection menu
 echo ""
-echo "📥 Downloading: $FILENAME..."
+echo "=============================================="
+echo "          Select Blueprint to Install         "
+echo "=============================================="
+echo " [ 0] ⚡ INSTALL ALL BLUEPRINTS (${#BLUEPRINTS[@]} total)"
 echo "----------------------------------------------"
-
-# Download file via curl or wget
-if command -v curl &> /dev/null; then
-    curl -sSL -o "$FILENAME" "$BLUEPRINT_URL"
-elif command -v wget &> /dev/null; then
-    wget -q -O "$FILENAME" "$BLUEPRINT_URL"
-else
-    echo "❌ ERROR: Neither 'curl' nor 'wget' was found on this system."
-    exit 1
-fi
-
-# Validate download success
-if [ ! -s "$FILENAME" ]; then
-    echo "❌ Download failed or file is empty!"
-    rm -f "$FILENAME"
-    exit 1
-fi
-
-NAME="${FILENAME%.blueprint}"
-
-echo "=============================================="
-echo " 🚀 Installing extension: $NAME"
-echo "=============================================="
+for i in "${!BLUEPRINTS[@]}"; do
+    printf " [%2d] %s\n" "$((i + 1))" "${BLUEPRINTS[$i]}"
+done
+echo "----------------------------------------------"
 echo ""
 
-# Install via Blueprint CLI
-if blueprint -install "$NAME"; then
+read -p "Enter selection (0-${#BLUEPRINTS[@]}): " CHOICE
+
+# Input validation
+if ! [[ "$CHOICE" =~ ^[0-9]+$ ]] || [ "$CHOICE" -lt 0 ] || [ "$CHOICE" -gt "${#BLUEPRINTS[@]}" ]; then
     echo ""
-    echo "✅ Successfully installed: $NAME"
-    rm -f "$FILENAME"
-else
-    echo ""
-    echo "❌ Installation failed for $NAME."
+    echo "❌ Invalid selection."
     exit 1
+fi
+
+# Step 4: Installation execution
+install_blueprint() {
+    local file="$1"
+    local name="${file%.blueprint}"
+
+    echo "----------------------------------------------"
+    echo " 🚀 Installing: $name"
+    echo "----------------------------------------------"
+
+    if blueprint -install "$name"; then
+        echo "✅ Installed: $name"
+        rm -f "$file"
+    else
+        echo "❌ Failed to install: $name"
+        return 1
+    fi
+}
+
+if [ "$CHOICE" -eq 0 ]; then
+    echo ""
+    echo "🚀 Starting batch installation of all blueprints..."
+    for file in "${BLUEPRINTS[@]}"; do
+        install_blueprint "$file" || exit 1
+    done
+    echo ""
+    echo "✅ All blueprints installed successfully!"
+else
+    SELECTED_FILE="${BLUEPRINTS[$((CHOICE - 1))]}"
+    echo ""
+    install_blueprint "$SELECTED_FILE"
 fi
