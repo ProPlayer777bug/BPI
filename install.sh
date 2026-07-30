@@ -1,8 +1,20 @@
 #!/bin/bash
 
-# Set working directory to script folder
+# Default to current directory if script directory has no blueprints
 SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" >/dev/null 2>&1 && pwd )"
-cd "$SCRIPT_DIR" || exit 1
+
+# Check if blueprints exist in script dir; if not, check current working dir
+shopt -s nullglob
+BLUEPRINTS=( "$SCRIPT_DIR"/*.blueprint )
+
+if [ ${#BLUEPRINTS[@]} -eq 0 ]; then
+    BLUEPRINTS=( *.blueprint )
+    if [ ${#BLUEPRINTS[@]} -gt 0 ]; then
+        cd "$PWD" || exit 1
+    fi
+else
+    cd "$SCRIPT_DIR" || exit 1
+fi
 
 clear
 
@@ -11,11 +23,9 @@ echo "       Pterodactyl Blueprint Installer        "
 echo "=============================================="
 echo ""
 
-# Get all blueprint files
-BLUEPRINTS=( *.blueprint )
-
-if [ ! -e "${BLUEPRINTS[0]}" ]; then
-    echo "❌ No .blueprint files found in this directory!"
+if [ ${#BLUEPRINTS[@]} -eq 0 ]; then
+    echo "❌ No .blueprint files found in $(pwd)!"
+    echo "Please place your .blueprint files in this folder and try again."
     exit 1
 fi
 
@@ -25,7 +35,8 @@ echo "----------------------------------------------"
 echo " [ 0] ⚡ INSTALL ALL BLUEPRINTS (${#BLUEPRINTS[@]} total)"
 echo "----------------------------------------------"
 for i in "${!BLUEPRINTS[@]}"; do
-    printf " [%2d] %s\n" "$((i + 1))" "${BLUEPRINTS[$i]}"
+    filename="$(basename "${BLUEPRINTS[$i]}")"
+    printf " [%2d] %s\n" "$((i + 1))" "$filename"
 done
 echo "----------------------------------------------"
 echo ""
@@ -55,7 +66,8 @@ if [ "$CHOICE" -eq 0 ]; then
     echo ""
 
     for file in "${BLUEPRINTS[@]}"; do
-        name="${file%.blueprint}"
+        filename="$(basename "$file")"
+        name="${filename%.blueprint}"
 
         echo "----------------------------------------------"
         echo "Installing: $name"
@@ -80,7 +92,8 @@ if [ "$CHOICE" -eq 0 ]; then
 # Single Blueprint Option
 else
     SELECTED_FILE="${BLUEPRINTS[$((CHOICE - 1))]}"
-    BLUEPRINT_NAME="${SELECTED_FILE%.blueprint}"
+    filename="$(basename "$SELECTED_FILE")"
+    BLUEPRINT_NAME="${filename%.blueprint}"
 
     echo "=============================================="
     echo " 🚀 Installing target: $BLUEPRINT_NAME"
