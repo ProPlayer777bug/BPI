@@ -1,103 +1,93 @@
 #!/bin/bash
 
-# Folder where blueprints will be saved
-DOWNLOAD_DIR="./blueprints"
+# Folder containing blueprint files (defaults to current directory)
+BLUEPRINT_DIR="$(pwd)"
 
-clear
-echo "=============================================="
-echo "    Pterodactyl Blueprint Auto-Downloader     "
-echo "=============================================="
-echo ""
+cd "$BLUEPRINT_DIR" || exit 1
 
-# Check if Blueprint CLI exists
+# Check if Blueprint CLI is installed
 if ! command -v blueprint &> /dev/null; then
     echo "❌ ERROR: 'blueprint' CLI command is not installed."
-    echo "Install Blueprint framework first, then run this installer again."
     exit 1
 fi
 
-mkdir -p "$DOWNLOAD_DIR"
+# Function to get all .blueprint files
+get_blueprints() {
+    shopt -s nullglob
+    BLUEPRINTS=( *.blueprint )
+}
 
-# Step 1: Prompt for URL or direct file download
-read -p "Enter direct URL to a .blueprint file (or press ENTER to use existing folder): " URL
-
-if [ -n "$URL" ]; then
-    FILENAME=$(basename "$URL" | cut -d'?' -f1)
-    
-    # Fix raw GitHub link if needed
-    if [[ "$URL" == *"github.com"* ]] && [[ "$URL" == *"/blob/"* ]]; then
-        URL=$(echo "$URL" | sed 's/github.com/raw.githubusercontent.com/' | sed 's//blob///')
-    fi
-
-    echo "📥 Downloading $FILENAME..."
-    if command -v curl &> /dev/null; then
-        curl -sSL -o "$DOWNLOAD_DIR/$FILENAME" "$URL"
-    elif command -v wget &> /dev/null; then
-        wget -q -O "$DOWNLOAD_DIR/$FILENAME" "$URL"
-    fi
-fi
-
-# Step 2: Fetch all .blueprint files in directory
-cd "$DOWNLOAD_DIR" || exit 1
-shopt -s nullglob
-BLUEPRINTS=( *.blueprint )
+get_blueprints
 
 if [ ${#BLUEPRINTS[@]} -eq 0 ]; then
-    echo ""
     echo "❌ No .blueprint files found in $(pwd)!"
+    echo "Please place your .blueprint files in this directory."
     exit 1
 fi
 
-# Step 3: Present selection menu
-echo ""
-echo "=============================================="
-echo "          Select Blueprint to Install         "
-echo "=============================================="
-echo " [ 0] ⚡ INSTALL ALL BLUEPRINTS (${#BLUEPRINTS[@]} total)"
-echo "----------------------------------------------"
+# Detect GUI tool (whiptail or dialog)
+if command -v whiptail &> /dev/null; then
+    GUI="whiptail"
+elif command -v dialog &> /dev/null; then
+    GUI="dialog"
+else
+    echo "⚠️ Neither 'whiptail' nor 'dialog' found. Installing whiptail..."
+    apt-get update && apt-get install -y whiptail || yum install -y newt
+    GUI="whiptail"
+fi
+
+# Build menu items array
+MENU_OPTIONS=("ALL" "⚡ Install ALL Blueprints (${#BLUEPRINTS[@]} total)")
+
 for i in "${!BLUEPRINTS[@]}"; do
-    printf " [%2d] %s\n" "$((i + 1))" "${BLUEPRINTS[$i]}"
+    MENU_OPTIONS+=("$((i + 1))" "${BLUEPRINTS[$i]}")
 done
-echo "----------------------------------------------"
-echo ""
 
-read -p "Enter selection (0-${#BLUEPRINTS[@]}): " CHOICE
+# Show GUI Menu
+CHOICE=$($GUI --clear --backtitle "Pterodactyl Blueprint GUI Installer" \
+    --title " Select Blueprint to Install " \
+    --menu "Use UP/DOWN arrows to select, then press ENTER:" 18 65 10 \
+    "${MENU_OPTIONS[@]}" \
+    3>&1 1>&2 2>&3)
 
-# Input validation
-if ! [[ "$CHOICE" =~ ^[0-9]+$ ]] || [ "$CHOICE" -lt 0 ] || [ "$CHOICE" -gt "${#BLUEPRINTS[@]}" ]; then
-    echo ""
-    echo "❌ Invalid selection."
-    exit 1
+# Exit if user cancelled
+if [ $? -ne 0 ]; then
+    clear
+    echo "Cancelled."
+    exit 0
 fi
 
-# Step 4: Installation execution
-install_blueprint() {
+clear
+
+# Installation helper
+run_install() {
     local file="$1"
     local name="${file%.blueprint}"
 
-    echo "----------------------------------------------"
+    echo "=============================================="
     echo " 🚀 Installing: $name"
-    echo "----------------------------------------------"
+    echo "=============================================="
 
     if blueprint -install "$name"; then
         echo "✅ Installed: $name"
         rm -f "$file"
     else
         echo "❌ Failed to install: $name"
-        return 1
+        exit 1
     fi
+    echo ""
 }
 
-if [ "$CHOICE" -eq 0 ]; then
-    echo ""
-    echo "🚀 Starting batch installation of all blueprints..."
+# Process Choice
+if [ "$CHOICE" == "ALL" ]; then
     for file in "${BLUEPRINTS[@]}"; do
-        install_blueprint "$file" || exit 1
+        run_install "$file"
     done
-    echo ""
+    echo "=============================================="
     echo "✅ All blueprints installed successfully!"
+    echo "=============================================="
 else
-    SELECTED_FILE="${BLUEPRINTS[$((CHOICE - 1))]}"
-    echo ""
-    install_blueprint "$SELECTED_FILE"
+    INDEX=$((CHOICE - 1))
+    SELECTED_FILE="${BLUEPRINTS[$INDEX]}"
+    run_install "$SELECTED_FILE"
 fi
