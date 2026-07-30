@@ -1,56 +1,43 @@
 #!/bin/bash
 
-# Folder containing blueprint files (defaults to current directory)
-BLUEPRINT_DIR="$(pwd)"
+# Navigate to current directory
+cd "$( cd "$( dirname "${BASH_SOURCE[0]}" )" >/dev/null 2>&1 && pwd )" || exit 1
 
-cd "$BLUEPRINT_DIR" || exit 1
-
-# Check if Blueprint CLI is installed
+# Check for Blueprint CLI
 if ! command -v blueprint &> /dev/null; then
     echo "❌ ERROR: 'blueprint' CLI command is not installed."
     exit 1
 fi
 
-# Function to get all .blueprint files
-get_blueprints() {
-    shopt -s nullglob
-    BLUEPRINTS=( *.blueprint )
-}
-
-get_blueprints
+# Detect all .blueprint files
+shopt -s nullglob
+BLUEPRINTS=( *.blueprint )
 
 if [ ${#BLUEPRINTS[@]} -eq 0 ]; then
     echo "❌ No .blueprint files found in $(pwd)!"
-    echo "Please place your .blueprint files in this directory."
     exit 1
 fi
 
-# Detect GUI tool (whiptail or dialog)
-if command -v whiptail &> /dev/null; then
-    GUI="whiptail"
-elif command -v dialog &> /dev/null; then
-    GUI="dialog"
-else
-    echo "⚠️ Neither 'whiptail' nor 'dialog' found. Installing whiptail..."
-    apt-get update && apt-get install -y whiptail || yum install -y newt
-    GUI="whiptail"
+# Ensure whiptail is available for GUI menu
+if ! command -v whiptail &> /dev/null; then
+    apt-get update -y && apt-get install -y whiptail
 fi
 
-# Build menu items array
-MENU_OPTIONS=("ALL" "⚡ Install ALL Blueprints (${#BLUEPRINTS[@]} total)")
+# Build GUI Menu Options
+MENU_OPTIONS=("0" "⚡ INSTALL ALL (${#BLUEPRINTS[@]} total)")
 
 for i in "${!BLUEPRINTS[@]}"; do
     MENU_OPTIONS+=("$((i + 1))" "${BLUEPRINTS[$i]}")
 done
 
-# Show GUI Menu
-CHOICE=$($GUI --clear --backtitle "Pterodactyl Blueprint GUI Installer" \
-    --title " Select Blueprint to Install " \
-    --menu "Use UP/DOWN arrows to select, then press ENTER:" 18 65 10 \
+# Show Arrow-Key Terminal GUI
+CHOICE=$(whiptail --clear --backtitle "Pterodactyl Blueprint GUI Installer" \
+    --title " Select Blueprint " \
+    --menu "Use UP/DOWN arrows and press ENTER:" 18 65 10 \
     "${MENU_OPTIONS[@]}" \
     3>&1 1>&2 2>&3)
 
-# Exit if user cancelled
+# Exit if canceled
 if [ $? -ne 0 ]; then
     clear
     echo "Cancelled."
@@ -59,35 +46,40 @@ fi
 
 clear
 
-# Installation helper
-run_install() {
+# Function to execute installation automatically without prompting
+install_file() {
     local file="$1"
-    local name="${file%.blueprint}"
+    
+    # Strip extension path cleanly
+    local name
+    name=$(basename "$file" .blueprint)
 
     echo "=============================================="
-    echo " 🚀 Installing: $name"
+    echo " 🚀 Auto-Installing: $name"
     echo "=============================================="
 
-    if blueprint -install "$name"; then
+    # Pipe 'yes' to bypass any interactive prompt inside Blueprint CLI
+    if yes | blueprint -install "$name"; then
+        echo ""
         echo "✅ Installed: $name"
         rm -f "$file"
     else
+        echo ""
         echo "❌ Failed to install: $name"
         exit 1
     fi
     echo ""
 }
 
-# Process Choice
-if [ "$CHOICE" == "ALL" ]; then
+# Run Installation based on selection
+if [ "$CHOICE" -eq 0 ]; then
     for file in "${BLUEPRINTS[@]}"; do
-        run_install "$file"
+        install_file "$file"
     done
     echo "=============================================="
     echo "✅ All blueprints installed successfully!"
     echo "=============================================="
 else
     INDEX=$((CHOICE - 1))
-    SELECTED_FILE="${BLUEPRINTS[$INDEX]}"
-    run_install "$SELECTED_FILE"
+    install_file "${BLUEPRINTS[$INDEX]}"
 fi
