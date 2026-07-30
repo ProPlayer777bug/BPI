@@ -1,85 +1,107 @@
 #!/bin/bash
 
-# Navigate to current directory
-cd "$( cd "$( dirname "${BASH_SOURCE[0]}" )" >/dev/null 2>&1 && pwd )" || exit 1
+# =========================================================
+#  BPI - Pterodactyl Blueprint Interactive GUI Installer
+#  Repository: https://github.com/ProPlayer777bug/BPI
+# =========================================================
 
-# Check for Blueprint CLI
+# Ensure script operates from the current directory
+WORKING_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" >/dev/null 2>&1 && pwd )"
+cd "$WORKING_DIR" || exit 1
+
+# Check if Blueprint CLI is installed
 if ! command -v blueprint &> /dev/null; then
-    echo "❌ ERROR: 'blueprint' CLI command is not installed."
+    clear
+    echo "❌ ERROR: 'blueprint' CLI command is not installed or not in PATH."
+    echo "Please install the Blueprint framework first."
     exit 1
 fi
 
-# Detect all .blueprint files
+# Search for .blueprint files
 shopt -s nullglob
 BLUEPRINTS=( *.blueprint )
 
 if [ ${#BLUEPRINTS[@]} -eq 0 ]; then
-    echo "❌ No .blueprint files found in $(pwd)!"
+    clear
+    echo "=============================================="
+    echo "❌ No .blueprint files found in:"
+    echo "   $WORKING_DIR"
+    echo "=============================================="
+    echo "Please place your .blueprint files inside this directory and run the installer again."
     exit 1
 fi
 
-# Ensure whiptail is available for GUI menu
+# Ensure whiptail GUI utility is available
 if ! command -v whiptail &> /dev/null; then
-    apt-get update -y && apt-get install -y whiptail
+    echo "⚙️ Installing 'whiptail' menu tool..."
+    if command -v apt-get &> /dev/null; then
+        apt-get update -y && apt-get install -y whiptail
+    elif command -v yum &> /dev/null; then
+        yum install -y newt
+    fi
 fi
 
 # Build GUI Menu Options
-MENU_OPTIONS=("0" "⚡ INSTALL ALL (${#BLUEPRINTS[@]} total)")
+MENU_ITEMS=("0" "⚡ INSTALL ALL BLUEPRINTS (${#BLUEPRINTS[@]} total)")
 
 for i in "${!BLUEPRINTS[@]}"; do
-    MENU_OPTIONS+=("$((i + 1))" "${BLUEPRINTS[$i]}")
+    MENU_ITEMS+=("$((i + 1))" "${BLUEPRINTS[$i]}")
 done
 
-# Show Arrow-Key Terminal GUI
-CHOICE=$(whiptail --clear --backtitle "Pterodactyl Blueprint GUI Installer" \
-    --title " Select Blueprint " \
-    --menu "Use UP/DOWN arrows and press ENTER:" 18 65 10 \
-    "${MENU_OPTIONS[@]}" \
+# Render Graphical Terminal Interface
+CHOICE=$(whiptail --clear \
+    --backtitle "Pterodactyl BPI Installer - https://github.com/ProPlayer777bug/BPI" \
+    --title " Blueprint Package Selection " \
+    --menu "Use UP/DOWN arrow keys to navigate and press ENTER to select:" 18 70 10 \
+    "${MENU_ITEMS[@]}" \
     3>&1 1>&2 2>&3)
 
-# Exit if canceled
+# Handle Cancellation
 if [ $? -ne 0 ]; then
     clear
-    echo "Cancelled."
+    echo "Installation cancelled by user."
     exit 0
 fi
 
 clear
 
-# Function to execute installation automatically without prompting
-install_file() {
-    local file="$1"
+# Automated Installation Function
+execute_installation() {
+    local target_file="$1"
     
-    # Strip extension path cleanly
-    local name
-    name=$(basename "$file" .blueprint)
+    # Cleanly strip file extension to get extension identifier
+    local blueprint_identifier
+    blueprint_identifier=$(basename "$target_file" .blueprint)
 
     echo "=============================================="
-    echo " 🚀 Auto-Installing: $name"
+    echo " 🚀 Auto-Installing: $blueprint_identifier"
     echo "=============================================="
 
-    # Pipe 'yes' to bypass any interactive prompt inside Blueprint CLI
-    if yes | blueprint -install "$name"; then
+    # Pipe 'yes' to bypass interactive confirmation prompts in Blueprint CLI
+    if yes | blueprint -install "$blueprint_identifier"; then
         echo ""
-        echo "✅ Installed: $name"
-        rm -f "$file"
+        echo "✅ Successfully installed: $blueprint_identifier"
+        rm -f "$target_file"
     else
         echo ""
-        echo "❌ Failed to install: $name"
+        echo "❌ Failed to install: $blueprint_identifier"
         exit 1
     fi
     echo ""
 }
 
-# Run Installation based on selection
+# Run selection based on menu choice
 if [ "$CHOICE" -eq 0 ]; then
+    echo "Starting batch installation of all detected blueprints..."
+    echo ""
     for file in "${BLUEPRINTS[@]}"; do
-        install_file "$file"
+        execute_installation "$file"
     done
     echo "=============================================="
-    echo "✅ All blueprints installed successfully!"
+    echo "✅ All blueprint packages installed successfully!"
     echo "=============================================="
 else
-    INDEX=$((CHOICE - 1))
-    install_file "${BLUEPRINTS[$INDEX]}"
+    SELECTED_INDEX=$((CHOICE - 1))
+    TARGET_FILE="${BLUEPRINTS[$SELECTED_INDEX]}"
+    execute_installation "$TARGET_FILE"
 fi
